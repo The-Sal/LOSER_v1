@@ -125,6 +125,8 @@ class AuditNotifier:
         msg.update({
             'project_name': self._project_name,
             'project_market': self._project_market,
+            'project_description': self._project_description,
+            'project_privileges': self._project_privileges if self._project_privileges else [],
             **self._kwargs
         })
         self._send(msg)
