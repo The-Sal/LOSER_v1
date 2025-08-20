@@ -83,7 +83,7 @@ class AuditServer:
             if todayOnly:
                 trail_timestamp = trail['timestamp']  # unix timestamp
                 diff_from_now = time.time() - trail_timestamp
-                if diff_from_now > (24 * 60 * 60):  # more than 24 hours
+                if diff_from_now > (30 * 60 * 60):  # 30hours for 1 day + overnight buffer
                     continue
             dumpable_dictionary[project_name].append(trail)
 

@@ -3,6 +3,7 @@ import time
 import socket
 from utils3 import redundancy, runAsThread
 
+
 class ProjectPrivileges:
     """Defines privilege levels for project operations.
     
@@ -13,6 +14,7 @@ class ProjectPrivileges:
     POST_MORTEM_ANALYSIS = 'post_mortem_analysis'
     LIVE_MONITORING = 'live_monitoring'
     UTILITIES = 'utilities'
+
 
 class ProjectEvents:
     """Standard event types for audit logging.
@@ -33,7 +35,7 @@ class ProjectEventObj:
     Encapsulates all information about an audit event including type, description,
     timestamp, and any additional context data.
     """
-    
+
     def __init__(self, event_type: ProjectEvents, event_description: str, **kwargs):
         """Initialize a project event object.
         
@@ -71,7 +73,7 @@ class AuditNotifier:
     Automatically sends a boot event upon initialization and provides methods
     to send various types of audit events throughout the project lifecycle.
     """
-    
+
     def __init__(self, project_name, project_market, project_description, project_privileges=None, **kwargs):
         """Initialize the audit notifier client.
         
@@ -131,7 +133,6 @@ class AuditNotifier:
         })
         self._send(msg)
 
-
     def notify(self, event_type, event_description, **kwargs):
         """Alias for send() method.
         
@@ -184,13 +185,13 @@ if __name__ == '__main__':
         project_market='Test Market',
         project_description='This is a test project for auditing purposes.'
     )
-    
+
     print("Interactive Audit Notifier Test")
     print("Available event types:")
     for attr in dir(ProjectEvents):
         if not attr.startswith('_'):
             print(f"  - {attr}: {getattr(ProjectEvents, attr)}")
-    
+
     try:
         while True:
             print("\nOptions:")
@@ -199,41 +200,41 @@ if __name__ == '__main__':
             print("3. Send trade closed event")
             print("4. Send error event")
             print("5. Exit")
-            
+
             choice = input("Select option (1-5): ").strip()
-            
+
             if choice == '1':
                 event_type = input("Enter event type: ").strip()
                 description = input("Enter event description: ").strip()
                 svr.send(event_type, description)
                 print("Custom event sent!")
-                
+
             elif choice == '2':
                 symbol = input("Enter trade symbol: ").strip()
                 price = input("Enter trade price: ").strip()
-                svr.send(ProjectEvents.TRADE_OPENED, f"Trade opened for {symbol}", 
-                        symbol=symbol, price=price)
+                svr.send(ProjectEvents.TRADE_OPENED, f"Trade opened for {symbol}",
+                         symbol=symbol, price=price)
                 print("Trade opened event sent!")
-                
+
             elif choice == '3':
                 symbol = input("Enter trade symbol: ").strip()
                 profit = input("Enter profit/loss: ").strip()
-                svr.send(ProjectEvents.TRADE_CLOSED, f"Trade closed for {symbol}", 
-                        symbol=symbol, profit=profit)
+                svr.send(ProjectEvents.TRADE_CLOSED, f"Trade closed for {symbol}",
+                         symbol=symbol, profit=profit)
                 print("Trade closed event sent!")
-                
+
             elif choice == '4':
                 error_msg = input("Enter error message: ").strip()
                 svr.send(ProjectEvents.ERROR, error_msg)
                 print("Error event sent!")
-                
+
             elif choice == '5':
                 print("Exiting...")
                 break
-                
+
             else:
                 print("Invalid choice. Please select 1-5.")
-                
+
     except KeyboardInterrupt:
         print("\nExiting...")
     except Exception as e:

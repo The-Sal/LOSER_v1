@@ -4,6 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+utils3 = {git= "https://github.com/the-sal/utils3"}
 
 [dev-packages]
 
