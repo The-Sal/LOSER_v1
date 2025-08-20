@@ -178,6 +178,21 @@ def trigger_audit_dumping():
         response = sock.recv(1024)
         print(f"Server response: {response.decode()}")
 
+def trigger_audit_dumping_all():
+    """Trigger a dump of all audit trails, not just today's.
+
+    Sends a special command to the audit server to dump all collected audit trails,
+    regardless of date. Useful for comprehensive audits or backups.
+
+    Returns:
+        None: Function executes for side effects only
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect(('localhost', 9324))
+        sock.sendall(b'dump_audit_trails_all')
+        response = sock.recv(1024)
+        print(f"Server response: {response.decode()}")
+
 
 if __name__ == '__main__':
     svr = AuditNotifier(

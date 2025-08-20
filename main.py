@@ -59,6 +59,10 @@ class AuditServer:
                     self.dump_audit_trails()
                     client_socket.sendall(b"Audit trails dumped")
                     continue
+                elif data == b'dump_audit_trails_all':
+                    self.dump_audit_trails(todayOnly=False)
+                    client_socket.sendall(b"All audit trails dumped")
+                    continue
 
                 if not data:
                     break
