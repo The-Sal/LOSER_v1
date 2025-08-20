@@ -1,4 +1,5 @@
 import sys
+import time
 import json
 import pickle
 import socket
@@ -73,17 +74,22 @@ class AuditServer:
             print("Client disconnected.")
 
 
-    def dump_audit_trails(self):
+    def dump_audit_trails(self, todayOnly=True):
         dumpable_dictionary = {}
         for trail in self._full_audit_trails:
             project_name = trail['project_name']
             if project_name not in dumpable_dictionary:
                 dumpable_dictionary[project_name] = []
+            if todayOnly:
+                trail_timestamp = trail['timestamp']  # unix timestamp
+                diff_from_now = time.time() - trail_timestamp
+                if diff_from_now > (24 * 60 * 60):  # more than 24 hours
+                    continue
             dumpable_dictionary[project_name].append(trail)
 
         print("Dumping audit trails:")
         with open("dumped_audit_trails.json", "w") as f:
-            json.dump(dumpable_dictionary, f, indent=4)
+            json.dump(dumpable_dictionary, f)
         print(f"Audit trails dumped to dumped_audit_trails.json with {len(dumpable_dictionary)} projects.")
 
     @staticmethod
