@@ -5,6 +5,8 @@ import time
 import json
 import pickle
 import socket
+import traceback
+
 from utils3 import runAsThread
 from utils3.system import allProcesses, Process
 
@@ -179,7 +181,9 @@ def main(machine_id: str | None = None):
     try:
         machine = AuditableMachine(machine_id)
         machine.spin_socket_server()
-    except ValueError:
+    except ValueError as e:
+        print("An error occurred while initializing the machine")
+        traceback.print_exc()
         print("Machine ID must be provided for new machines.")
         i = input("Enter a unique machine ID (e.g., hostname or UUID): ").strip()
         main(i)
