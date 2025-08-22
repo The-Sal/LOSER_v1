@@ -1,3 +1,4 @@
+import os
 import json
 import time
 import socket
@@ -75,7 +76,8 @@ class AuditNotifier:
     to send various types of audit events throughout the project lifecycle.
     """
 
-    def __init__(self, project_name, project_market, project_description, project_privileges=None, **kwargs):
+    def __init__(self, project_name, project_market, project_description, project_privileges=None,
+                 pid=os.getpid(), **kwargs):
         """Initialize the audit notifier client.
         
         Args:
@@ -83,6 +85,7 @@ class AuditNotifier:
             project_market: Market context the project operates in
             project_description: Description of the project's purpose
             project_privileges: Single privilege or list of ProjectPrivileges
+            pid: Process ID of the project instance (default: current process)
             **kwargs: Additional metadata to include with all events
         """
         self._project_name = project_name
@@ -92,7 +95,7 @@ class AuditNotifier:
         self._kwargs = kwargs
         self._server_address = ('localhost', 9324)
         self._boot_time = time.time()
-        self.send(ProjectEvents.BOOT, "Project was booted.")
+        self.send(ProjectEvents.BOOT, "Project was booted.", booted_with_pid=pid)
 
     @runAsThread
     @redundancy(lambda *args, **kwargs: None)
@@ -163,6 +166,7 @@ def fast_audit(project_name, project_market, project_description):
     """
     _ = AuditNotifier(project_name, project_market, project_description)
 
+
 def trigger_audit_dumping():
     """Trigger a dump of the current audit trails.
 
@@ -178,6 +182,7 @@ def trigger_audit_dumping():
         response = sock.recv(1024)
         print(f"Server response: {response.decode()}")
 
+
 def trigger_audit_dumping_all():
     """Trigger a dump of all audit trails, not just today's.
 
@@ -192,6 +197,7 @@ def trigger_audit_dumping_all():
         sock.sendall(b'dump_audit_trails_all')
         response = sock.recv(1024)
         print(f"Server response: {response.decode()}")
+
 
 def start_audit_machine():
     """Start the audit server machine.

@@ -6,7 +6,6 @@ import json
 import pickle
 import socket
 import traceback
-
 from utils3 import runAsThread
 from utils3.system import allProcesses, Process
 
