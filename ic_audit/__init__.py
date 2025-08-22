@@ -2,6 +2,7 @@ import json
 import time
 import socket
 from utils3 import redundancy, runAsThread
+from ic_audit.machine import main as audit_machine_main
 
 
 class ProjectPrivileges:
@@ -162,7 +163,6 @@ def fast_audit(project_name, project_market, project_description):
     """
     _ = AuditNotifier(project_name, project_market, project_description)
 
-
 def trigger_audit_dumping():
     """Trigger a dump of the current audit trails.
 
@@ -192,6 +192,17 @@ def trigger_audit_dumping_all():
         sock.sendall(b'dump_audit_trails_all')
         response = sock.recv(1024)
         print(f"Server response: {response.decode()}")
+
+def start_audit_machine():
+    """Start the audit server machine.
+
+    Launches the audit server process which listens for incoming audit events.
+    This function runs the server in a separate thread.
+
+    Returns:
+        None: Function executes for side effects only
+    """
+    audit_machine_main()
 
 
 if __name__ == '__main__':

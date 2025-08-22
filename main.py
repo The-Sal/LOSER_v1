@@ -4,7 +4,7 @@ import json
 import pickle
 import socket
 import random
-import os.path
+import os
 import subprocess
 from utils3 import runAsThread, Container
 
@@ -24,23 +24,45 @@ class AuditServer:
         print(f"Audit server started on {self.host}:{self.port}")
         self._start_server()
         self._full_audit_trails = []
+        self._hosts: list[str] = []
         self.load_audit_trails()
         print(f"Loaded {len(self._full_audit_trails)} audit trails from {pickle_location}")
+        print(f"Loaded {len(self._hosts)} managed host(s) from {pickle_location}")
         print("Audit server is ready to receive data. Build ID:", BUILD_IDENTIFIER)
 
 
     def load_audit_trails(self):
         try:
             with open(pickle_location, 'rb') as f:
-                self._full_audit_trails = pickle.load(f)
+                data = pickle.load(f)
+                # Backward compatibility: older versions stored just a list of trails
+                if isinstance(data, list):
+                    self._full_audit_trails = data
+                    self._hosts = []
+                elif isinstance(data, dict):
+                    self._full_audit_trails = data.get('trails', [])
+                    self._hosts = data.get('hosts', [])
+                else:
+                    self._full_audit_trails = []
+                    self._hosts = []
         except FileNotFoundError:
             print(f"No audit trails found at {pickle_location}. Starting fresh.")
             self._full_audit_trails = []
+            self._hosts = []
 
     def save_audit_trails(self):
+        # ensure directory exists
+        try:
+            os.makedirs(os.path.dirname(pickle_location), exist_ok=True)
+        except Exception:
+            pass
+        payload = {
+            'trails': self._full_audit_trails,
+            'hosts': self._hosts,
+        }
         with open(pickle_location, 'wb') as f:
-            pickle.dump(self._full_audit_trails, f)
-        print(f"Audit trails saved to {pickle_location}")
+            pickle.dump(payload, f)
+        print(f"Audit trails and hosts saved to {pickle_location}")
 
     @runAsThread
     def _start_server(self):
@@ -91,10 +113,74 @@ class AuditServer:
                     continue
             dumpable_dictionary[project_name].append(trail)
 
+        dumpable_dictionary['external_hosts'] = self._hosts
+        dumpable_dictionary['external_hosts_audit'] = self.fetch_remote_audits()
+
         print("Dumping audit trails:")
         with open("dumped_audit_trails.json", "w") as f:
             json.dump(dumpable_dictionary, f)
         print(f"Audit trails dumped to dumped_audit_trails.json with {len(dumpable_dictionary)} projects.")
+
+    # --- Host management and remote fetch ---
+    def add_host(self, host: str):
+        host = host.strip()
+        if not host:
+            print("Empty host ignored")
+            return
+        if host not in self._hosts:
+            self._hosts.append(host)
+            self.save_audit_trails()
+            print(f"Host added: {host}")
+        else:
+            print(f"Host already present: {host}")
+
+    def remove_host(self, host: str):
+        host = host.strip()
+        if host in self._hosts:
+            self._hosts.remove(host)
+            self.save_audit_trails()
+            print(f"Host removed: {host}")
+        else:
+            print(f"Host not found: {host}")
+
+    def list_hosts(self):
+        return list(self._hosts)
+
+    def _fetch_from_host(self, host: str, timeout: float = 3.0):
+        try:
+            with socket.create_connection((host, 9631), timeout=timeout) as s:
+                s.sendall(b'audit')
+                # Read the 4-byte big-endian length header
+                header = s.recv(4)
+                if len(header) < 4:
+                    return "unable to reach"
+                size = int.from_bytes(header, 'big')
+                if size <= 0:
+                    return "unable to reach"
+                chunks = []
+                remaining = size
+                while remaining > 0:
+                    chunk = s.recv(min(4096, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                if remaining != 0:
+                    return "unable to reach"
+                data = b''.join(chunks)
+                try:
+                    return json.loads(data.decode('utf-8'))
+                except json.JSONDecodeError:
+                    return "unable to reach"
+        except Exception as e:
+            _ = e
+            return "unable to reach"
+
+    def fetch_remote_audits(self, timeout: float = 3.0):
+        results = {}
+        for host in self._hosts:
+            results[host] = self._fetch_from_host(host, timeout=timeout)
+        return results
 
     @staticmethod
     def build_audit_server():
@@ -139,12 +225,47 @@ if __name__ == '__main__':
     else:
         server = AuditServer()
         try:
+            print("Interactive commands: press Enter to dump today's trails.")
+            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | exit"
+            print(msg)
             while True:
-                i = input("Press enter to dump audit trails or Ctrl+C to exit: ")
+                i = input("> ").strip()
                 if i == '':
                     server.dump_audit_trails()
+                    continue
+                if i.lower() in ('help', 'h', '?'):
+                    print(msg)
+                    continue
+                if i.lower() == 'dump_all':
+                    server.dump_audit_trails(todayOnly=False)
+                    continue
+                if i.lower().startswith('add '):
+                    host = i[4:].strip()
+                    server.add_host(host)
+                    continue
+                if i.lower().startswith('remove '):
+                    host = i[7:].strip()
+                    server.remove_host(host)
+                    continue
+                if i.lower() == 'list':
+                    hosts = server.list_hosts()
+                    if hosts:
+                        print("Managed hosts:")
+                        for h in hosts:
+                            print(f" - {h}")
+                    else:
+                        print("No managed hosts.")
+                    continue
+                if i.lower() == 'fetch':
+                    results = server.fetch_remote_audits()
+                    print(json.dumps(results, indent=2))
+                    continue
+                if i.lower() in ('exit', 'quit', 'q'):
+                    break
+                print("Unknown command. Type 'help' for options.")
 
         except KeyboardInterrupt:
             print("Shutting down server.")
+        finally:
             server.server_socket.close()
             print("Server closed.")

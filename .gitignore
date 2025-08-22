@@ -1,2 +1,4 @@
 .idea
 Pipfile.lock
+machine_config.json
+machine_cache.pkl
