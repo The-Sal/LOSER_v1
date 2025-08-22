@@ -13,6 +13,11 @@ from utils3.system import allProcesses, Process
 _MACHINE_CACHE = os.path.join(os.path.dirname(__file__), 'machine_cache.pkl')
 _AUDIT_PORT = 9631
 
+class AuditableMachineError(Exception):
+    pass
+
+class NoSavedMachineID(AuditableMachineError):
+    pass
 
 class AuditableMachine:
     """Represents a machine that can be audited for its status. The way it works essentially is that
@@ -42,7 +47,7 @@ class AuditableMachine:
             self.machine_id = self.data['machine_id']
         else:
             if machine_id is None:
-                raise ValueError("Machine ID must be provided for new machines.")
+                raise NoSavedMachineID("Machine ID must be provided for new machines.")
             self.machine_id = machine_id
             self.data['machine_id'] = machine_id
             self.write_machine_cache()
@@ -181,9 +186,7 @@ def main(machine_id: str | None = None):
     try:
         machine = AuditableMachine(machine_id)
         machine.spin_socket_server()
-    except ValueError as e:
-        print("An error occurred while initializing the machine")
-        traceback.print_exc()
+    except NoSavedMachineID:
         print("Machine ID must be provided for new machines.")
         i = input("Enter a unique machine ID (e.g., hostname or UUID): ").strip()
         main(i)
