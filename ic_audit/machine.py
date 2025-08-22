@@ -41,8 +41,9 @@ class AuditableMachine:
         else:
             if machine_id is None:
                 raise ValueError("Machine ID must be provided for new machines.")
-
             self.machine_id = machine_id
+            self.data['machine_id'] = machine_id
+            self.write_machine_cache()
 
         self.socket = socket.socket(socket.AF_INET)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
