@@ -5,7 +5,6 @@ import time
 import json
 import pickle
 import socket
-import traceback
 from utils3 import runAsThread
 from utils3.system import allProcesses, Process
 
@@ -107,15 +106,19 @@ class AuditableMachine:
 
     @runAsThread
     def _update_last_alive_msg(self):
+        two_days_in_seconds = 172_800
+        interval = 30
+        two_days_of_intervals = two_days_in_seconds // interval
         while True:
-            time.sleep(1)
+            time.sleep(interval)
             try:
                 self.data['last_alive'].append(time.time())
             except KeyError:
                 self.data['last_alive'] = [time.time()]
 
-            if len(self.data['last_alive']) > 172_800:  # that is about 2 days of 1s intervals
-                self.data['last_alive'] = self.data['last_alive'].pop(0)  # remove the oldest entry
+            if len(self.data['last_alive']) > two_days_of_intervals:
+                # remove the last entry
+                self.data['last_alive'].pop(0)
 
             self.write_machine_cache()
 
@@ -169,6 +172,7 @@ class AuditableMachine:
         this_session_boot = self.data['boot_times'][-1]
         last_24h_boots = len(self.data['boot_times'])
         current_up_time = time.time() - this_session_boot
+
         report = {
             'machine_id': self.machine_id,
             'current_time': time.time(),
@@ -177,6 +181,18 @@ class AuditableMachine:
             'current_up_time_seconds': current_up_time,
             'active_processes': self.get_active_processes(),
         }
+
+        last_alive_times = self.data.get('last_alive', [])
+        if last_alive_times:
+            last_alive_of_last_session = None
+            for t in reversed(last_alive_times):
+                if t < this_session_boot:
+                    last_alive_of_last_session = t
+                    break
+
+            if last_alive_of_last_session:
+                down_time_from_last_session_to_this_boot = this_session_boot - last_alive_of_last_session
+                report['downtime_between_sessions_seconds'] = down_time_from_last_session_to_this_boot
 
         return report
 

@@ -1,10 +1,11 @@
+import os
 import sys
+import threading
 import time
 import json
 import pickle
 import socket
 import random
-import os
 import subprocess
 from utils3 import runAsThread, Container
 
@@ -26,6 +27,7 @@ class AuditServer:
         self._full_audit_trails = []
         self._hosts: list[str] = []
         self.load_audit_trails()
+        self._write_lock = threading.Lock()
         print(f"Loaded {len(self._full_audit_trails)} audit trails from {pickle_location}")
         print(f"Loaded {len(self._hosts)} managed host(s) from {pickle_location}")
         print("Audit server is ready to receive data. Build ID:", BUILD_IDENTIFIER)
@@ -50,19 +52,60 @@ class AuditServer:
             self._full_audit_trails = []
             self._hosts = []
 
+        except (pickle.UnpicklingError, EOFError):
+            # NOTE: This is a recovery mechanism under the case that file corruption occurs from
+            # mid-write crash or similar. The system does NOT provide backups or 'saves'.
+            # if the .pickle file is corrupted externally (e.g. manual edit), recovery is not possible.
+            # .tmp & recover is to cover this PROGRAM's write process only, and it's failure modes.
+            # There are two scenarios:
+            # 1. The .tmp file is corrupted - does not matter since we load from the main .pickle
+            # 2. The main .pickle file is corrupted - we try to recover from the .tmp file
+            # The .pickle file cannot be corrupted while .tmp is intact, because we write to .tmp first,
+            # then rename to .pickle (atomic operation).
+
+            # Note: This in prod has never been triggered on modern Unix-like systems. However, on
+            # machines with SD cards or similar to write to .pickle often gets interrupted.
+            # for large audit trails especially during power outages
+
+
+
+            print(f"Failed to load audit trails from {pickle_location}. Searching for backup.")
+            corrupt_file = pickle_location + '_{}.corrupt'.format(int(time.time()))
+            os.rename(pickle_location, corrupt_file)
+            print(f"Renamed corrupted file to {corrupt_file}")
+            try:
+                os.rename(pickle_location + '.tmp', pickle_location)
+                self.load_audit_trails()
+                os.remove(corrupt_file)
+                print("Recovered from backup successfully.")
+            except FileNotFoundError:
+                raise RuntimeError('The main audit file is corrupted and no backup was found, the corrupted file has been renamed '
+                                   'to .corrupt, on next-boot a new file will be created '
+                                   'however any previously stored audit trails will be lost.')
+
+            except Exception as e:
+                print(f"Failed to recover from backup: {e}. Either delete the corrupt file or fix manually.")
+                raise e
+
+
     def save_audit_trails(self):
-        # ensure directory exists
-        try:
-            os.makedirs(os.path.dirname(pickle_location), exist_ok=True)
-        except Exception:
-            pass
-        payload = {
-            'trails': self._full_audit_trails,
-            'hosts': self._hosts,
-        }
-        with open(pickle_location, 'wb') as f:
-            pickle.dump(payload, f)
-        print(f"Audit trails and hosts saved to {pickle_location}")
+        with self._write_lock:
+            # ensure directory exists
+            try:
+                os.makedirs(os.path.dirname(pickle_location), exist_ok=True)
+            except FileExistsError:
+                pass
+            payload = {
+                'trails': self._full_audit_trails,
+                'hosts': self._hosts,
+            }
+
+            # atomic write via 2-step process
+            with open(pickle_location + '.tmp', 'wb') as f:
+                pickle.dump(payload, f)
+
+            os.rename(pickle_location + '.tmp', pickle_location)
+            print(f"Audit trails and hosts saved to {pickle_location}")
 
     @runAsThread
     def _start_server(self):
@@ -146,9 +189,10 @@ class AuditServer:
     def list_hosts(self):
         return list(self._hosts)
 
-    def _fetch_from_host(self, host: str, timeout: float = 3.0):
+    @staticmethod
+    def _fetch_from_host(host_server: str, timeout: float = 3.0):
         try:
-            with socket.create_connection((host, 9631), timeout=timeout) as s:
+            with socket.create_connection((host_server, 9631), timeout=timeout) as s:
                 s.sendall(b'audit')
                 # Read the 4-byte big-endian length header
                 header = s.recv(4)
