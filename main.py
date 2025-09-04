@@ -103,7 +103,6 @@ class AuditServer:
             # atomic write via 2-step process
             with open(pickle_location + '.tmp', 'wb') as f:
                 pickle.dump(payload, f)
-
             os.rename(pickle_location + '.tmp', pickle_location)
             print(f"Audit trails and hosts saved to {pickle_location}")
 
@@ -259,6 +258,18 @@ class AuditServer:
         print(f"Audit server built and stored at {store_dir}")
         exit(0)
 
+    def prune_boots_from_logs(self):
+        # remove all `boot` events from logs
+        original_count = len(self._full_audit_trails)
+        self._full_audit_trails = [trail for trail in self._full_audit_trails if trail.get('event_type') != 'boot']
+        pruned_count = original_count - len(self._full_audit_trails)
+        if pruned_count > 0:
+            print(f"Pruned {pruned_count} boot events from audit trails.")
+            self.save_audit_trails()
+        else:
+            print("No boot events found to prune.")
+
+
 
 
 
@@ -270,7 +281,7 @@ if __name__ == '__main__':
         server = AuditServer()
         try:
             print("Interactive commands: press Enter to dump today's trails.")
-            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | exit"
+            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | prune | exit"
             print(msg)
             while True:
                 i = input("> ").strip()
@@ -303,6 +314,10 @@ if __name__ == '__main__':
                 if i.lower() == 'fetch':
                     results = server.fetch_remote_audits()
                     print(json.dumps(results, indent=2))
+                    continue
+
+                if i.lower() == 'prune':
+                    server.prune_boots_from_logs()
                     continue
                 if i.lower() in ('exit', 'quit', 'q'):
                     break
