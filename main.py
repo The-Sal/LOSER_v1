@@ -129,6 +129,22 @@ class AuditServer:
                     client_socket.sendall(b"All audit trails dumped")
                     continue
 
+                elif data == b'dump_compact':
+                    self.dump_all_compact()
+                    client_socket.sendall(b"Compact audit dump created")
+                    continue
+                elif data.decode().startswith('dump_compact_with_filter:'):
+                    proj_filters = data.decode().split(':', 1)[1].split(',')
+                    proj_filters = [p.strip() for p in proj_filters if p.strip()]
+                    self.dump_all_compact(project_filters=proj_filters)
+                    client_socket.sendall(b"Compact audit dump with filters created")
+                    continue
+                elif data == b'available_projects':
+                    projects_avail = self.available_projects
+                    response = json.dumps(projects_avail).encode()
+                    client_socket.sendall(response)
+                    continue
+
                 if not data:
                     break
                 try:
