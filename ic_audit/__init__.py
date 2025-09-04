@@ -198,6 +198,40 @@ def trigger_audit_dumping_all():
         response = sock.recv(1024)
         print(f"Server response: {response.decode()}")
 
+def trigger_audit_compact(filters: list[str] = None):
+    """
+    Trigger compaction of audit trails based on specified filters.
+    :param filters: If specified, only compact trails matching these filters.
+                    If None, compacts all trails.
+    :return:
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect(('localhost', 9324))
+        command = 'dump_compact'
+        if filters:
+            command += '_with_filter:' + ','.join(filters)
+        sock.sendall(command.encode())
+        response = sock.recv(1024)
+        print(f"Server response: {response.decode()}")
+
+
+def available_audit_projects():
+    """Retrieve a list of projects with audit trails.
+
+    Connects to the audit server and requests a list of all projects
+    that have recorded audit events.
+
+    Returns:
+        list: List of project names with audit trails
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect(('localhost', 9324))
+        sock.sendall(b'available_projects')
+        response = sock.recv(4096)
+        projects = json.loads(response.decode())
+        return projects
+
+
 
 def start_audit_machine():
     """Start the audit server machine.
