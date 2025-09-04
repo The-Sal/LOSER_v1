@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 import threading
@@ -269,6 +270,56 @@ class AuditServer:
         else:
             print("No boot events found to prune.")
 
+    def dump_all_compact(self, project_filters: list[str] = None):
+        """
+        Dump all audit trails in a txt based format much smaller than JSON and automatically
+        formatted for human reading.
+
+        :arg project_filters: If provided, only dump these projects (list of project names)
+        :return:
+        """
+        projects = {}
+        for trail in self._full_audit_trails:
+            project_name = trail.get('project_name', 'unknown_project')
+            if project_filters and project_name not in project_filters:
+                continue
+            if project_name not in projects:
+                projects[project_name] = []
+            projects[project_name].append(trail)
+
+        full_txt = "AUDIT SERVER COMPACT DUMP ({})\n".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+
+        for project, trails in projects.items():
+            sorted_trails = sorted(trails, key=lambda x: x.get('timestamp', 0))
+            full_txt += "=" * 40 + "\n"
+            full_txt += f"Project: {project}\n"
+            full_txt += "-" * 40 + "\n"
+            for trail in sorted_trails:
+                full_txt += "\n"
+                for key, value in trail.items():
+                    if key == 'timestamp':
+                        value = datetime.datetime.fromtimestamp(value).strftime('%Y-%m-%d %H:%M:%S')
+                    full_txt += f"{key}: {value}\n"
+
+
+        with open('compact_audit_dump.txt', 'w') as f:
+            f.write(full_txt)
+        
+        if project_filters:
+            print(f"Compact audit dump created with {len(projects)} filtered project(s): {', '.join(projects.keys())}")
+        else:
+            print(f"Compact audit dump created with all {len(projects)} project(s): {', '.join(projects.keys())}")
+        print("Output saved to: compact_audit_dump.txt")
+
+    @property
+    def available_projects(self):
+        projects = set()
+        for trail in self._full_audit_trails:
+            project_name = trail.get('project_name', 'unknown_project')
+            projects.add(project_name)
+        return list(projects)
+
 
 
 
@@ -281,7 +332,7 @@ if __name__ == '__main__':
         server = AuditServer()
         try:
             print("Interactive commands: press Enter to dump today's trails.")
-            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | prune | exit"
+            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | compact_dump | compact_dump <filters> | prune | exit"
             print(msg)
             while True:
                 i = input("> ").strip()
@@ -310,6 +361,13 @@ if __name__ == '__main__':
                             print(f" - {h}")
                     else:
                         print("No managed hosts.")
+
+                    # list all available projects
+                    projects = server.available_projects
+                    if projects:
+                        print("Available projects in audit trails:")
+                        for p in projects:
+                            print(f" - {p}")
                     continue
                 if i.lower() == 'fetch':
                     results = server.fetch_remote_audits()
@@ -319,6 +377,22 @@ if __name__ == '__main__':
                 if i.lower() == 'prune':
                     server.prune_boots_from_logs()
                     continue
+
+                if i.lower() == 'compact_dump':
+                    server.dump_all_compact()
+                    continue
+                
+                if i.lower().startswith('compact_dump '):
+                    filter_part = i[13:].strip()  # Remove 'compact_dump ' prefix
+                    if filter_part:
+                        # Parse filters - split by comma or space
+                        filters = [f.strip() for f in filter_part.split(',') if f.strip()]
+                        server.dump_all_compact(project_filters=filters)
+                        print(f"Compact dump created with filters: {', '.join(filters)}")
+                    else:
+                        server.dump_all_compact()
+                    continue
+
                 if i.lower() in ('exit', 'quit', 'q'):
                     break
                 print("Unknown command. Type 'help' for options.")
