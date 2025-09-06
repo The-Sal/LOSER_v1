@@ -318,8 +318,7 @@ class AuditServer:
                         value = datetime.datetime.fromtimestamp(value).strftime('%Y-%m-%d %H:%M:%S')
                     full_txt += f"{key}: {value}\n"
 
-
-        with open('compact_audit_dump.txt', 'w') as f:
+        with open('compact_audit_dump.txt', 'w', encoding='utf-8') as f:
             f.write(full_txt)
         
         if project_filters:

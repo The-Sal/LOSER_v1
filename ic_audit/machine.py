@@ -170,12 +170,16 @@ class AuditableMachine:
     def generate_audit_report(self):
         """Generate a report of the machine's status."""
         this_session_boot = self.data['boot_times'][-1]
-        last_24h_boots = len(self.data['boot_times'])
-        current_up_time = time.time() - this_session_boot
+        # Count only boots that occurred within the last 24 hours
+        now = time.time()
+        twenty_four_hours_ago = now - 86_400
+        boot_times = self.data.get('boot_times', [])
+        last_24h_boots = sum(1 for t in boot_times if isinstance(t, (int, float)) and t >= twenty_four_hours_ago)
+        current_up_time = now - this_session_boot
 
         report = {
             'machine_id': self.machine_id,
-            'current_time': time.time(),
+            'current_time': now,
             'this_session_boot_time': this_session_boot,
             'last_24h_boots': last_24h_boots,
             'current_up_time_seconds': current_up_time,
