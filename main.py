@@ -355,7 +355,8 @@ class AuditServer:
             ts = trail.get('timestamp')
             try:
                 ts_h = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, (int, float)) else str(ts)
-            except Exception:
+            except Exception as e:
+                _ = e
                 ts_h = str(ts)
             proj = trail.get('project_name', 'unknown_project')
             ev = trail.get('event_type', trail.get('event', ''))
@@ -364,24 +365,24 @@ class AuditServer:
             summary_str = (summary[:60] + '…') if isinstance(summary, str) and len(summary) > 60 else (summary or '')
             print(f" {idx:>2}. [{ts_h}] project={proj} event={ev} {summary_str}")
 
-        def _global_index_for_selection(sel: int) -> int:
+        def _global_index_for_selection(selection: int) -> int:
             # Map selection to global index: 1 means most recent -> last element
-            return total - sel
+            return total - selection
 
         def _preview_one():
             # Ask user which one to preview, then show full details
             while True:
-                choice = input(f"Preview which? Enter 1-{n} (or 'q' to go back): ").strip().lower()
-                if choice in ('q', 'quit', 'exit', ''):
+                choice_in = input(f"Preview which? Enter 1-{n} (or 'q' to go back): ").strip().lower()
+                if choice_in in ('q', 'quit', 'exit', ''):
                     return
-                if not choice.isdigit():
+                if not choice_in.isdigit():
                     print("Please enter a number or 'q'.")
                     continue
-                sel = int(choice)
-                if not (1 <= sel <= n):
+                selec = int(choice_in)
+                if not (1 <= selec <= n):
                     print(f"Please enter a number between 1 and {n}.")
                     continue
-                gi = _global_index_for_selection(sel)
+                gi = _global_index_for_selection(selec)
                 trail = self._full_audit_trails[gi]
                 print("\n=== Audit Entry Detail ===")
                 try:
@@ -440,8 +441,7 @@ class AuditServer:
             print("Entry removed and saved.")
             return
 
-
-if __name__ == '__main__':
+def main():
     args = sys.argv[1:]
     if '-build' in args:
         AuditServer.build_audit_server()
@@ -498,11 +498,11 @@ if __name__ == '__main__':
                 if i.lower() == 'compact_dump':
                     server.dump_all_compact()
                     continue
-                
+
                 if i.lower() == 'rm_last':
                     server.interactive_remove_recent()
                     continue
-                
+
                 if i.lower().startswith('compact_dump '):
                     filter_part = i[13:].strip()  # Remove 'compact_dump ' prefix
                     if filter_part:
@@ -523,3 +523,7 @@ if __name__ == '__main__':
         finally:
             server.server_socket.close()
             print("Server closed.")
+
+
+if __name__ == '__main__':
+    main()
