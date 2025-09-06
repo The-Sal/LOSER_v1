@@ -232,7 +232,6 @@ def available_audit_projects():
         return projects
 
 
-
 def start_audit_machine():
     """Start the audit server machine.
 

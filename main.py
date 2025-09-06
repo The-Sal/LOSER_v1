@@ -335,8 +335,110 @@ class AuditServer:
             projects.add(project_name)
         return list(projects)
 
+    # --- CLI-only utilities ---
+    def interactive_remove_recent(self):
+        """
+        CLI-only: Show last up to 10 audit entries (most recent first), allow previewing an entry
+        in detail by entering '?', then prompt to select one to remove and persist the change.
+        Not exposed over the socket server.
+        """
+        total = len(self._full_audit_trails)
+        if total == 0:
+            print("No audit entries available to remove.")
+            return
+        n = min(10, total)
+        recent = self._full_audit_trails[-n:]
+        # Show newest first
+        enumerated = list(enumerate(reversed(recent), start=1))
+        print(f"Last {n} audit entries (most recent first):")
+        for idx, trail in enumerated:
+            ts = trail.get('timestamp')
+            try:
+                ts_h = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, (int, float)) else str(ts)
+            except Exception:
+                ts_h = str(ts)
+            proj = trail.get('project_name', 'unknown_project')
+            ev = trail.get('event_type', trail.get('event', ''))
+            summary = trail.get('message') or trail.get('summary') or ''
+            # Keep each line compact
+            summary_str = (summary[:60] + '…') if isinstance(summary, str) and len(summary) > 60 else (summary or '')
+            print(f" {idx:>2}. [{ts_h}] project={proj} event={ev} {summary_str}")
 
+        def _global_index_for_selection(sel: int) -> int:
+            # Map selection to global index: 1 means most recent -> last element
+            return total - sel
 
+        def _preview_one():
+            # Ask user which one to preview, then show full details
+            while True:
+                choice = input(f"Preview which? Enter 1-{n} (or 'q' to go back): ").strip().lower()
+                if choice in ('q', 'quit', 'exit', ''):
+                    return
+                if not choice.isdigit():
+                    print("Please enter a number or 'q'.")
+                    continue
+                sel = int(choice)
+                if not (1 <= sel <= n):
+                    print(f"Please enter a number between 1 and {n}.")
+                    continue
+                gi = _global_index_for_selection(sel)
+                trail = self._full_audit_trails[gi]
+                print("\n=== Audit Entry Detail ===")
+                try:
+                    # Pretty JSON if possible
+                    print(json.dumps(trail, indent=2, default=str))
+                except Exception:
+                    # Fallback key-value lines
+                    for k, v in trail.items():
+                        print(f"{k}: {v}")
+                print("=== End Detail ===\n")
+                # After showing once, return to main prompt
+                return
+
+        while True:
+            choice = input(f"Select 1-{n} to remove, '?' to preview, or 'q' to cancel: ").strip().lower()
+            if choice in ('q', 'quit', 'exit'):
+                print("Cancelled. No changes made.")
+                return
+            if choice == '?':
+                _preview_one()
+                continue
+            if not choice.isdigit():
+                print("Please enter a number, '?' to preview, or 'q' to cancel.")
+                continue
+            sel = int(choice)
+            if not (1 <= sel <= n):
+                print(f"Please enter a number between 1 and {n}.")
+                continue
+            global_index = _global_index_for_selection(sel)
+            to_delete = self._full_audit_trails[global_index]
+            # Confirm with brief details
+            ts = to_delete.get('timestamp')
+            try:
+                ts_h = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, (int, float)) else str(ts)
+            except Exception:
+                ts_h = str(ts)
+            proj = to_delete.get('project_name', 'unknown_project')
+            ev = to_delete.get('event_type', to_delete.get('event', ''))
+            # Offer an extra quick preview before deletion
+            confirm = input(f"Remove entry [{ts_h}] project={proj} event={ev}? (y/N, '?' to preview): ").strip().lower()
+            if confirm == '?':
+                # show full details then go back to main loop without deleting
+                print("\n=== Audit Entry Detail ===")
+                try:
+                    print(json.dumps(to_delete, indent=2, default=str))
+                except Exception:
+                    for k, v in to_delete.items():
+                        print(f"{k}: {v}")
+                print("=== End Detail ===\n")
+                continue
+            if confirm != 'y':
+                print("Cancelled. No changes made.")
+                return
+            del self._full_audit_trails[global_index]
+            self.save_audit_trails()
+            print("Entry removed and saved.")
+            return
 
 
 if __name__ == '__main__':
@@ -347,7 +449,7 @@ if __name__ == '__main__':
         server = AuditServer()
         try:
             print("Interactive commands: press Enter to dump today's trails.")
-            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | compact_dump | compact_dump <filters> | prune | exit"
+            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | compact_dump | compact_dump <filters> | prune | rm_last | exit"
             print(msg)
             while True:
                 i = input("> ").strip()
@@ -395,6 +497,10 @@ if __name__ == '__main__':
 
                 if i.lower() == 'compact_dump':
                     server.dump_all_compact()
+                    continue
+                
+                if i.lower() == 'rm_last':
+                    server.interactive_remove_recent()
                     continue
                 
                 if i.lower().startswith('compact_dump '):
