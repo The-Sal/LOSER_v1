@@ -1,7 +1,18 @@
-import datetime
+import sys
 import os
+
+# Force UTF-8 encoding for Nuitka builds
+if hasattr(sys, 'frozen'):  # This is True when running as Nuitka executable
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+# Alternative: Set stdout encoding directly
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+
 import sys
 import threading
+import datetime
 import time
 import json
 import pickle
@@ -555,7 +566,7 @@ class AuditServer:
 
 
             build_proc = [
-                'py', '-m', 'nuitka', 'main.py'
+                sys.executable, '-m', 'nuitka', 'main.py', '--follow-imports',
             ]
             print('Building audit server with command:', ' '.join(build_proc))
             subprocess.check_call(build_proc)
