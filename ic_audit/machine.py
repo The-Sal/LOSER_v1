@@ -110,6 +110,8 @@ class AuditableMachine:
                 conn.sendall(size_of_response.to_bytes(4, 'big') + response)
 
             elif request == 'speedtest':
+                print("Received speedtest request...")
+                print("This may take a while....")
                 result = self.net_diag.speedtest()
                 is_installed = self.net_diag.speedtest_installed()
                 response_data = {
@@ -118,6 +120,7 @@ class AuditableMachine:
                 }
                 response = json.dumps(response_data).encode('utf-8')
                 size_of_response = len(response)
+                print("Speedtest complete, sending response...")
                 conn.sendall(size_of_response.to_bytes(4, 'big') + response)
 
             else:

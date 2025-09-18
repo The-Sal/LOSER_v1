@@ -301,7 +301,7 @@ class AuditServer:
             return "unable to reach"
 
     @staticmethod
-    def _fetch_speedtest_from_host(host_server: str, timeout: float = 30.0):
+    def _fetch_speedtest_from_host(host_server: str, timeout: float = 120.0):
         """Fetch speedtest data from a remote host with extended timeout for intensive operation"""
         try:
             with socket.create_connection((host_server, 9631), timeout=timeout) as s:
