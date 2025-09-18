@@ -6,16 +6,20 @@ import json
 import pickle
 import socket
 from utils3 import runAsThread
+from ic_audit.net_doc import NetworkDiagnostics
 from utils3.system import allProcesses, Process
 
 _MACHINE_CACHE = os.path.join(os.path.dirname(__file__), 'machine_cache.pkl')
 _AUDIT_PORT = 9631
 
+
 class AuditableMachineError(Exception):
     pass
 
+
 class NoSavedMachineID(AuditableMachineError):
     pass
+
 
 class AuditableMachine:
     """Represents a machine that can be audited for its status. The way it works essentially is that
@@ -57,6 +61,7 @@ class AuditableMachine:
         print(f"Machine {self.machine_id} initialized with config:")
         print(json.dumps(self.machine_config, indent=4))
         self._boot_event()
+        self.net_diag = NetworkDiagnostics()
 
     @staticmethod
     def load_machine_config():
@@ -103,6 +108,18 @@ class AuditableMachine:
                 response = str(current_time).encode('utf-8')
                 size_of_response = len(response)
                 conn.sendall(size_of_response.to_bytes(4, 'big') + response)
+
+            elif request == 'speedtest':
+                result = self.net_diag.speedtest()
+                is_installed = self.net_diag.speedtest_installed()
+                response_data = {
+                    'installed': is_installed,
+                    'result': result
+                }
+                response = json.dumps(response_data).encode('utf-8')
+                size_of_response = len(response)
+                conn.sendall(size_of_response.to_bytes(4, 'big') + response)
+
             else:
                 conn.sendall(b'0000')  # Unknown request, send empty response
         except Exception as e:
@@ -215,6 +232,7 @@ def main(machine_id: str | None = None):
         print("Machine ID must be provided for new machines.")
         i = input("Enter a unique machine ID (e.g., hostname or UUID): ").strip()
         main(i)
+
 
 if __name__ == '__main__':
     main()

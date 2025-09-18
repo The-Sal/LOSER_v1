@@ -9,6 +9,7 @@ import socket
 import random
 import subprocess
 from utils3 import runAsThread, Container
+from ic_audit.net_doc import NetworkDiagnostics
 
 # DO NOT MODIFY THE BELOW LINE
 BUILD_IDENTIFIER = 'src.audit_server'
@@ -204,6 +205,33 @@ class AuditServer:
     def list_hosts(self):
         return list(self._hosts)
 
+    def select_host_for_intensive_operation(self):
+        """Select a host from the list for intensive operations like speedtest"""
+        hosts = self.list_hosts()
+        if not hosts:
+            print("No managed hosts available.")
+            return None
+        if len(hosts) == 1:
+            return hosts[0]
+
+        print("Select a host for the intensive operation:")
+        for i, host in enumerate(hosts, 1):
+            print(f"{i}. {host}")
+
+        while True:
+            try:
+                choice = input(f"Enter choice (1-{len(hosts)}): ").strip()
+                if not choice:
+                    return None
+                idx = int(choice) - 1
+                if 0 <= idx < len(hosts):
+                    return hosts[idx]
+                else:
+                    print(f"Please enter a number between 1 and {len(hosts)}.")
+            except (ValueError, KeyboardInterrupt):
+                print("Invalid input or operation cancelled.")
+                return None
+
     @staticmethod
     def _ping_host_timestamp(host_server: str, timeout: float = 3.0):
         """Ping the timestamp endpoint to measure round trip time"""
@@ -272,6 +300,37 @@ class AuditServer:
             _ = e
             return "unable to reach"
 
+    @staticmethod
+    def _fetch_speedtest_from_host(host_server: str, timeout: float = 30.0):
+        """Fetch speedtest data from a remote host with extended timeout for intensive operation"""
+        try:
+            with socket.create_connection((host_server, 9631), timeout=timeout) as s:
+                s.sendall(b'speedtest')
+                # Read the 4-byte big-endian length header
+                header = s.recv(4)
+                if len(header) < 4:
+                    return {"error": "speedtest endpoint not available"}
+                size = int.from_bytes(header, 'big')
+                if size <= 0:
+                    return {"error": "speedtest endpoint not available"}
+                chunks = []
+                remaining = size
+                while remaining > 0:
+                    chunk = s.recv(min(4096, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                if remaining != 0:
+                    return {"error": "speedtest endpoint not available"}
+                data = b''.join(chunks)
+                try:
+                    return json.loads(data.decode('utf-8'))
+                except json.JSONDecodeError:
+                    return {"error": "speedtest endpoint not available"}
+        except Exception as e:
+            return {"error": f"connection failed: {str(e)}"}
+
     def fetch_remote_audits(self, timeout: float = 3.0):
         results = {}
         for host in self._hosts:
@@ -282,6 +341,118 @@ class AuditServer:
                 'ping': ping_result
             }
         return results
+
+    def perform_speedtest(self):
+        """Perform speedtest on a selected host and optionally on local machine"""
+        selected_host = self.select_host_for_intensive_operation()
+        if not selected_host:
+            return
+
+        print(f"Running speedtest on {selected_host}...")
+        remote_result = self._fetch_speedtest_from_host(selected_host)
+
+        if 'error' in remote_result:
+            print(f"Remote speedtest failed: {remote_result['error']}")
+            return
+
+        # Display remote speedtest results
+        if remote_result.get('installed') and remote_result.get('result'):
+            result = remote_result['result']
+            print(f"\nSpeedtest results for {selected_host}:")
+            print(f"ISP: {result.get('isp', 'Unknown')}")
+            if 'download' in result:
+                download_mbps = (result['download']['bandwidth'] * 8) / 1_000_000  # Convert to Mbps
+                print(f"Download: {download_mbps:.2f} Mbps")
+            if 'upload' in result:
+                upload_mbps = (result['upload']['bandwidth'] * 8) / 1_000_000  # Convert to Mbps
+                print(f"Upload: {upload_mbps:.2f} Mbps")
+            if 'ping' in result:
+                print(f"Ping: {result['ping']['latency']:.2f} ms")
+        elif not remote_result.get('installed'):
+            print(f"Speedtest is not installed on {selected_host}")
+        else:
+            print(f"Speedtest failed on {selected_host}")
+
+    def diagnose_connection(self):
+        """Diagnose connection issues between local machine and selected host"""
+        selected_host = self.select_host_for_intensive_operation()
+        if not selected_host:
+            return
+
+        print(f"Diagnosing connection between local machine and {selected_host}...")
+
+        # Initialize local network diagnostics
+        local_net_diag = NetworkDiagnostics()
+
+        # Step 1: Check if local speedtest is available
+        local_speedtest_installed = local_net_diag.speedtest_installed()
+
+        # Step 2: Get remote speedtest data
+        print("Fetching remote speedtest data...")
+        remote_result = self._fetch_speedtest_from_host(selected_host)
+
+        # Step 3: Get local speedtest data if available
+        local_result = None
+        if local_speedtest_installed:
+            print("Running local speedtest...")
+            try:
+                local_result = local_net_diag.speedtest()
+            except Exception as e:
+                print(f"Local speedtest failed: {e}")
+
+        # Step 4: Get ping data
+        ping_result = self._ping_host_timestamp(selected_host)
+
+        # Analysis
+        print(f"\n=== DIAGNOSTIC REPORT for {selected_host} ===")
+
+        # Ping analysis
+        if 'error' not in ping_result:
+            rtt = ping_result.get('rtt_ms', 0)
+            if rtt < 50:
+                print(f"✓ Ping: {rtt}ms (Good)")
+            elif rtt < 150:
+                print(f"⚠ Ping: {rtt}ms (Moderate)")
+            else:
+                print(f"✗ Ping: {rtt}ms (High latency)")
+        else:
+            print(f"✗ Ping: {ping_result['error']}")
+
+        # Remote speedtest analysis
+        if 'error' not in remote_result and remote_result.get('installed') and remote_result.get('result'):
+            remote_data = remote_result['result']
+            remote_download = (remote_data['download']['bandwidth'] * 8) / 1_000_000 if 'download' in remote_data else 0
+            remote_upload = (remote_data['upload']['bandwidth'] * 8) / 1_000_000 if 'upload' in remote_data else 0
+            print(f"✓ Remote speedtest: ↓{remote_download:.1f}Mbps ↑{remote_upload:.1f}Mbps")
+        elif not remote_result.get('installed'):
+            print("⚠ Remote machine: speedtest not installed")
+        else:
+            print(f"✗ Remote speedtest: {remote_result.get('error', 'Failed')}")
+
+        # Local speedtest analysis
+        if local_speedtest_installed and local_result:
+            local_download = (local_result['download']['bandwidth'] * 8) / 1_000_000 if 'download' in local_result else 0
+            local_upload = (local_result['upload']['bandwidth'] * 8) / 1_000_000 if 'upload' in local_result else 0
+            print(f"✓ Local speedtest: ↓{local_download:.1f}Mbps ↑{local_upload:.1f}Mbps")
+
+            # Comparison analysis
+            if 'error' not in remote_result and remote_result.get('result'):
+                remote_data = remote_result['result']
+                remote_download = (remote_data['download']['bandwidth'] * 8) / 1_000_000
+
+                download_ratio = local_download / remote_download if remote_download > 0 else 0
+                if download_ratio > 1.2:
+                    print("📈 Analysis: Local connection appears faster - issue may be on remote end")
+                elif download_ratio < 0.8:
+                    print("📉 Analysis: Remote connection appears faster - issue may be on local end")
+                else:
+                    print("⚖️ Analysis: Connection speeds are comparable")
+        elif not local_speedtest_installed:
+            print("⚠ Local machine: speedtest not installed")
+        else:
+            print("✗ Local speedtest: Failed")
+
+        print("=== END DIAGNOSTIC REPORT ===\n")
 
     @staticmethod
     def build_audit_server():
@@ -494,7 +665,7 @@ def main():
         server = AuditServer()
         try:
             print("Interactive commands: press Enter to dump today's trails.")
-            msg = "Other commands: help | add <host> | remove <host> | list | fetch | ping | dump_all | compact_dump | compact_dump <filters> | prune | rm_last | exit"
+            msg = "Other commands: help | add <host> | remove <host> | list | fetch | ping | speed | diagnostic | dump_all | compact_dump | compact_dump <filters> | prune | rm_last | exit"
             print(msg)
             while True:
                 i = input("> ").strip()
@@ -548,6 +719,12 @@ def main():
                             print(f"{host}: {ping_result['error']}")
                         else:
                             print(f"{host}: {ping_result['rtt_ms']}ms RTT")
+                    continue
+                if i.lower() == 'speed':
+                    server.perform_speedtest()
+                    continue
+                if i.lower() == 'diagnostic':
+                    server.diagnose_connection()
                     continue
 
                 if i.lower() == 'prune':
