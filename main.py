@@ -158,7 +158,6 @@ class AuditServer:
                 client_socket.sendall(b"Data received")
             print("Client disconnected.")
 
-
     def dump_audit_trails(self, todayOnly=True):
         dumpable_dictionary = {}
         for trail in self._full_audit_trails:
@@ -206,6 +205,43 @@ class AuditServer:
         return list(self._hosts)
 
     @staticmethod
+    def _ping_host_timestamp(host_server: str, timeout: float = 3.0):
+        """Ping the timestamp endpoint to measure round trip time"""
+        try:
+            start_time = time.time()
+            with socket.create_connection((host_server, 9631), timeout=timeout) as s:
+                s.sendall(b'timestamp')
+                # Read the 4-byte big-endian length header
+                header = s.recv(4)
+                if len(header) < 4:
+                    return {"error": "timestamp endpoint not available", "rtt_ms": None}
+                size = int.from_bytes(header, 'big')
+                if size <= 0:
+                    return {"error": "timestamp endpoint not available", "rtt_ms": None}
+                chunks = []
+                remaining = size
+                while remaining > 0:
+                    chunk = s.recv(min(4096, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                if remaining != 0:
+                    return {"error": "timestamp endpoint not available", "rtt_ms": None}
+                end_time = time.time()
+                rtt_ms = (end_time - start_time) * 1000  # Convert to milliseconds
+
+                data = b''.join(chunks)
+                try:
+                    remote_timestamp = float(data.decode('utf-8'))
+                    return {"remote_timestamp": remote_timestamp, "rtt_ms": round(rtt_ms, 2)}
+                except (ValueError, UnicodeDecodeError):
+                    return {"error": "timestamp endpoint not available", "rtt_ms": None}
+        except Exception as e:
+            _ = e
+            return {"error": "timestamp endpoint not available", "rtt_ms": None}
+
+    @staticmethod
     def _fetch_from_host(host_server: str, timeout: float = 3.0):
         try:
             with socket.create_connection((host_server, 9631), timeout=timeout) as s:
@@ -239,7 +275,12 @@ class AuditServer:
     def fetch_remote_audits(self, timeout: float = 3.0):
         results = {}
         for host in self._hosts:
-            results[host] = self._fetch_from_host(host, timeout=timeout)
+            audit_result = self._fetch_from_host(host, timeout=timeout)
+            ping_result = self._ping_host_timestamp(host, timeout=timeout)
+            results[host] = {
+                'audit': audit_result,
+                'ping': ping_result
+            }
         return results
 
     @staticmethod
@@ -383,14 +424,16 @@ class AuditServer:
                     print(f"Please enter a number between 1 and {n}.")
                     continue
                 gi = _global_index_for_selection(selec)
-                trail = self._full_audit_trails[gi]
+                trail_in = self._full_audit_trails[gi]
                 print("\n=== Audit Entry Detail ===")
                 try:
                     # Pretty JSON if possible
-                    print(json.dumps(trail, indent=2, default=str))
-                except Exception:
+                    print(json.dumps(trail_in, indent=2, default=str))
+                except Exception as en:
+                    _ = en
                     # Fallback key-value lines
-                    for k, v in trail.items():
+                    # noinspection all
+                    for k, v in trail_in.items():
                         print(f"{k}: {v}")
                 print("=== End Detail ===\n")
                 # After showing once, return to main prompt
@@ -417,7 +460,8 @@ class AuditServer:
             ts = to_delete.get('timestamp')
             try:
                 ts_h = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, (int, float)) else str(ts)
-            except Exception:
+            except Exception as e:
+                _ = e
                 ts_h = str(ts)
             proj = to_delete.get('project_name', 'unknown_project')
             ev = to_delete.get('event_type', to_delete.get('event', ''))
@@ -428,7 +472,8 @@ class AuditServer:
                 print("\n=== Audit Entry Detail ===")
                 try:
                     print(json.dumps(to_delete, indent=2, default=str))
-                except Exception:
+                except Exception as e:
+                    _ = e
                     for k, v in to_delete.items():
                         print(f"{k}: {v}")
                 print("=== End Detail ===\n")
@@ -449,7 +494,7 @@ def main():
         server = AuditServer()
         try:
             print("Interactive commands: press Enter to dump today's trails.")
-            msg = "Other commands: help | add <host> | remove <host> | list | fetch | dump_all | compact_dump | compact_dump <filters> | prune | rm_last | exit"
+            msg = "Other commands: help | add <host> | remove <host> | list | fetch | ping | dump_all | compact_dump | compact_dump <filters> | prune | rm_last | exit"
             print(msg)
             while True:
                 i = input("> ").strip()
@@ -489,6 +534,20 @@ def main():
                 if i.lower() == 'fetch':
                     results = server.fetch_remote_audits()
                     print(json.dumps(results, indent=2))
+                    continue
+                if i.lower() == 'ping':
+                    hosts = server.list_hosts()
+                    if not hosts:
+                        print("No managed hosts to ping.")
+                        continue
+                    print("Pinging all managed hosts...")
+                    for host in hosts:
+                        # noinspection PyProtectedMember
+                        ping_result = server._ping_host_timestamp(host)
+                        if 'error' in ping_result:
+                            print(f"{host}: {ping_result['error']}")
+                        else:
+                            print(f"{host}: {ping_result['rtt_ms']}ms RTT")
                     continue
 
                 if i.lower() == 'prune':

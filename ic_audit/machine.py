@@ -97,6 +97,12 @@ class AuditableMachine:
                 response = json.dumps(report).encode('utf-8')
                 size_of_response = len(response)
                 conn.sendall(size_of_response.to_bytes(4, 'big') + response)
+            elif request == 'timestamp':
+                # for speed testing, just return the current timestamp
+                current_time = time.time()
+                response = str(current_time).encode('utf-8')
+                size_of_response = len(response)
+                conn.sendall(size_of_response.to_bytes(4, 'big') + response)
             else:
                 conn.sendall(b'0000')  # Unknown request, send empty response
         except Exception as e:
