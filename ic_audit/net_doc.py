@@ -11,7 +11,7 @@ class NetworkDiagnostics:
     def speedtest():
         """Requires Ookla Speedtest (official) to be installed."""
         try:
-            output = subprocess.check_output(['speedtest', '-f', 'json'])
+            output = subprocess.check_output(['speedtest', '-f', 'json'], stderr=subprocess.DEVNULL)
         except subprocess.CalledProcessError as e:
             print(f"Speedtest failed: {e}")
             return None

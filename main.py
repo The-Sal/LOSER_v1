@@ -403,54 +403,131 @@ class AuditServer:
         # Step 4: Get ping data
         ping_result = self._ping_host_timestamp(selected_host)
 
-        # Analysis
+        # Analysis and bottleneck detection
         print(f"\n=== DIAGNOSTIC REPORT for {selected_host} ===")
 
+        # Collect all metrics for analysis
+        rtt = ping_result.get('rtt_ms') if 'error' not in ping_result else None
+        remote_download = 0
+        remote_upload = 0
+        local_download = 0
+        local_upload = 0
+
         # Ping analysis
-        if 'error' not in ping_result:
-            rtt = ping_result.get('rtt_ms', 0)
+        if rtt is not None:
             if rtt < 50:
-                print(f"✓ Ping: {rtt}ms (Good)")
+                print(f"✓ Network latency: {rtt}ms (Good)")
             elif rtt < 150:
-                print(f"⚠ Ping: {rtt}ms (Moderate)")
+                print(f"⚠ Network latency: {rtt}ms (Moderate - may affect performance)")
             else:
-                print(f"✗ Ping: {rtt}ms (High latency)")
+                print(f"✗ Network latency: {rtt}ms (HIGH - significant bottleneck)")
         else:
-            print(f"✗ Ping: {ping_result['error']}")
+            print(f"✗ Network connectivity: {ping_result['error']}")
 
         # Remote speedtest analysis
+        remote_has_data = False
+        remote_network_fault = False
         if 'error' not in remote_result and remote_result.get('installed') and remote_result.get('result'):
             remote_data = remote_result['result']
             remote_download = (remote_data['download']['bandwidth'] * 8) / 1_000_000 if 'download' in remote_data else 0
             remote_upload = (remote_data['upload']['bandwidth'] * 8) / 1_000_000 if 'upload' in remote_data else 0
-            print(f"✓ Remote speedtest: ↓{remote_download:.1f}Mbps ↑{remote_upload:.1f}Mbps")
+            print(f"✓ {selected_host} internet: ↓{remote_download:.1f}Mbps ↑{remote_upload:.1f}Mbps")
+            remote_has_data = True
         elif not remote_result.get('installed'):
-            print("⚠ Remote machine: speedtest not installed")
+            print(f"⚠ {selected_host}: speedtest not installed (cannot measure internet speed)")
+        elif remote_result.get('installed') and not remote_result.get('result'):
+            # Speedtest is installed but failed to run - network fault
+            print(f"🚨 {selected_host}: speedtest installed but FAILED to run")
+            print(f"   → {selected_host} has a NETWORK FAULT")
+            remote_network_fault = True
         else:
-            print(f"✗ Remote speedtest: {remote_result.get('error', 'Failed')}")
+            print(f"✗ {selected_host} speedtest: {remote_result.get('error', 'Failed')}")
 
         # Local speedtest analysis
+        local_has_data = False
+        local_network_fault = False
         if local_speedtest_installed and local_result:
             local_download = (local_result['download']['bandwidth'] * 8) / 1_000_000 if 'download' in local_result else 0
             local_upload = (local_result['upload']['bandwidth'] * 8) / 1_000_000 if 'upload' in local_result else 0
-            print(f"✓ Local speedtest: ↓{local_download:.1f}Mbps ↑{local_upload:.1f}Mbps")
-
-            # Comparison analysis
-            if 'error' not in remote_result and remote_result.get('result'):
-                remote_data = remote_result['result']
-                remote_download = (remote_data['download']['bandwidth'] * 8) / 1_000_000
-
-                download_ratio = local_download / remote_download if remote_download > 0 else 0
-                if download_ratio > 1.2:
-                    print("📈 Analysis: Local connection appears faster - issue may be on remote end")
-                elif download_ratio < 0.8:
-                    print("📉 Analysis: Remote connection appears faster - issue may be on local end")
-                else:
-                    print("⚖️ Analysis: Connection speeds are comparable")
+            print(f"✓ Local machine internet: ↓{local_download:.1f}Mbps ↑{local_upload:.1f}Mbps")
+            local_has_data = True
         elif not local_speedtest_installed:
-            print("⚠ Local machine: speedtest not installed")
+            print("⚠ Local machine: speedtest not installed (cannot measure internet speed)")
+        elif local_speedtest_installed and not local_result:
+            # Speedtest is installed but failed to run - network fault
+            print("🚨 Local machine: speedtest installed but FAILED to run")
+            print("   → Local machine has a NETWORK FAULT")
+            local_network_fault = True
         else:
-            print("✗ Local speedtest: Failed")
+            print("✗ Local machine speedtest: Failed")
+
+        # BOTTLENECK ANALYSIS - Blame assignment
+        print(f"\n🔍 BOTTLENECK ANALYSIS:")
+
+        # Priority 1: Network connectivity issues
+        if rtt is None:
+            print(f"🚨 PRIMARY ISSUE: Network connectivity problem")
+            print(f"   → Cannot reach {selected_host} - check network/firewall")
+
+        # Priority 2: Network faults (speedtest installed but fails)
+        elif local_network_fault and remote_network_fault:
+            print(f"🚨 CRITICAL: Both machines have NETWORK FAULTS")
+            print(f"   → Both {selected_host} and local machine have internet connectivity issues")
+            print(f"   → Check ISP connections, DNS, firewalls on both machines")
+
+        elif local_network_fault:
+            print(f"🎯 BOTTLENECK IDENTIFIED: Local machine NETWORK FAULT")
+            print(f"   → Local machine has speedtest installed but cannot reach internet")
+            print(f"   → Check local ISP connection, DNS settings, firewall rules")
+
+        elif remote_network_fault:
+            print(f"🎯 BOTTLENECK IDENTIFIED: {selected_host} NETWORK FAULT")
+            print(f"   → {selected_host} has speedtest installed but cannot reach internet")
+            print(f"   → Check {selected_host} ISP connection, DNS settings, firewall rules")
+
+        # Priority 3: High latency
+        elif rtt > 150:
+            print(f"🚨 PRIMARY BOTTLENECK: Network latency ({rtt}ms)")
+            print(f"   → High latency between local machine and {selected_host}")
+            print(f"   → This will slow down all communication regardless of internet speed")
+
+        # Priority 4: Speed comparison analysis
+        elif local_has_data and remote_has_data:
+            # Both have speed data - detailed comparison
+            speed_diff_threshold = 20  # Mbps
+
+            if abs(local_download - remote_download) < speed_diff_threshold:
+                print(f"✅ Both machines have similar internet speeds (~{(local_download + remote_download)/2:.0f}Mbps)")
+                if min(local_download, remote_download) < 10:
+                    print(f"⚠️  Both connections are slow - this is a shared bottleneck")
+                else:
+                    print(f"   → Internet speeds are adequate")
+
+            elif local_download > remote_download + speed_diff_threshold:
+                print(f"🎯 BOTTLENECK IDENTIFIED: {selected_host}")
+                print(f"   → {selected_host} has slower internet ({remote_download:.1f}Mbps vs {local_download:.1f}Mbps locally)")
+                print(f"   → {selected_host} is limiting overall performance")
+
+            elif remote_download > local_download + speed_diff_threshold:
+                print(f"🎯 BOTTLENECK IDENTIFIED: Local machine")
+                print(f"   → Local internet is slower ({local_download:.1f}Mbps vs {remote_download:.1f}Mbps on {selected_host})")
+                print(f"   → Local connection is limiting overall performance")
+
+        elif local_has_data and not remote_has_data:
+            print(f"🎯 BOTTLENECK IDENTIFIED: {selected_host}")
+            print(f"   → Cannot measure {selected_host} internet speed")
+            print(f"   → Local speed: {local_download:.1f}Mbps (measurable)")
+            print(f"   → Issue likely on {selected_host} side")
+
+        elif remote_has_data and not local_has_data:
+            print(f"🎯 BOTTLENECK IDENTIFIED: Local machine")
+            print(f"   → Cannot measure local internet speed")
+            print(f"   → {selected_host} speed: {remote_download:.1f}Mbps (measurable)")
+            print(f"   → Issue likely on local machine side")
+
+        else:
+            print(f"❓ INCONCLUSIVE: Cannot measure internet speeds on either machine")
+            print(f"   → Install speedtest on both machines for detailed analysis")
 
         print("=== END DIAGNOSTIC REPORT ===\n")
 
