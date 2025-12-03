@@ -1,7 +1,9 @@
 import os
+import sys
 import json
 import time
 import socket
+import subprocess
 from utils3 import redundancy, runAsThread
 from ic_audit.machine import main as audit_machine_main
 
@@ -232,17 +234,33 @@ def available_audit_projects():
         return projects
 
 
-def start_audit_machine():
+def start_audit_machine(use_screen=False):
     """Start the audit server machine.
 
     Launches the audit server process which listens for incoming audit events.
-    This function runs the server in a separate thread.
+    If use_screen is True, starts the server in a screen session. Otherwise,
+    runs it in the current process (blocking).
+
+    Args:
+        use_screen (bool): If True, start in a screen session using 'screen -dmS ic.audit'.
+                          If False, run blocking in the current process.
 
     Returns:
         None: Function executes for side effects only
     """
-    audit_machine_main()
+    if use_screen:
+        # Get the path to the current Python executable and this module
+        python_exe = sys.executable
+        module_path = os.path.abspath(__file__)
+        # Start as a screen session: screen -dmS ic.audit python -m ic_audit
+        subprocess.Popen([
+            'screen', '-dmS', 'ic.audit',
+            python_exe, '-m', 'ic_audit'
+        ])
+    else:
+        audit_machine_main()
 
 
 if __name__ == '__main__':
-    start_audit_machine()
+    use_screen = '--screen' in sys.argv
+    start_audit_machine(use_screen=use_screen)
