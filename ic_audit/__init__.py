@@ -4,8 +4,10 @@ import json
 import time
 import socket
 import subprocess
+import threading
 from utils3 import redundancy, runAsThread
-from ic_audit.machine import main as audit_machine_main
+from ic_audit.machine import main as audit_machine_main, init_machine
+from ic_audit.ui import MachineConfigUI
 
 
 class ProjectPrivileges:
@@ -235,15 +237,15 @@ def available_audit_projects():
 
 
 def start_audit_machine(use_screen=False):
-    """Start the audit server machine.
+    """Start the audit server machine in a non-blocking manner.
 
-    Launches the audit server process which listens for incoming audit events.
-    If use_screen is True, starts the server in a screen session. Otherwise,
-    runs it in the current process (blocking).
+    Launches the audit server in a background thread and displays an interactive
+    UI for managing machine configuration. The server continues running even after
+    the UI is closed.
 
     Args:
         use_screen (bool): If True, start in a screen session using 'screen -dmS ic.audit'.
-                          If False, run blocking in the current process.
+                          If False, start in a background thread with interactive UI.
 
     Returns:
         None: Function executes for side effects only
@@ -258,7 +260,19 @@ def start_audit_machine(use_screen=False):
             python_exe, '-m', 'ic_audit'
         ])
     else:
-        audit_machine_main()
+        # Initialize machine in main thread (handles machine ID prompt if needed)
+        machine = init_machine()
+
+        # Start the server socket loop in a background thread (non-blocking)
+        server_thread = threading.Thread(target=machine.spin_socket_server, daemon=False)
+        server_thread.start()
+
+        # Give the server a moment to start listening
+        time.sleep(0.5)
+
+        # Launch the interactive UI in the main thread
+        ui = MachineConfigUI()
+        ui.run()
 
 
 if __name__ == '__main__':

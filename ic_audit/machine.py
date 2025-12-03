@@ -58,8 +58,17 @@ class AuditableMachine:
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind(('0.0.0.0', _AUDIT_PORT))
         self.machine_config = self.load_machine_config()
-        print(f"Machine {self.machine_id} initialized with config:")
-        print(json.dumps(self.machine_config, indent=4))
+
+        # Print boot information
+        config_path = os.path.join(os.getcwd(), 'machine_config.json')
+        print("\n" + "=" * 80)
+        print(f"Machine ID: {self.machine_id}")
+        print(f"Config loaded from: {config_path}")
+        print("=" * 80)
+        print("Machine configuration:")
+        print(json.dumps(self.machine_config, indent=2))
+        print("=" * 80 + "\n")
+
         self._boot_event()
         self.net_diag = NetworkDiagnostics()
 
@@ -195,6 +204,9 @@ class AuditableMachine:
 
     def generate_audit_report(self):
         """Generate a report of the machine's status."""
+        # Reload config to pick up any changes made through the UI
+        self.machine_config = self.load_machine_config()
+
         this_session_boot = self.data['boot_times'][-1]
         # Count only boots that occurred within the last 24 hours
         now = time.time()
@@ -227,14 +239,29 @@ class AuditableMachine:
         return report
 
 
-def main(machine_id: str | None = None):
+def init_machine(machine_id: str | None = None) -> AuditableMachine:
+    """Initialize and return an AuditableMachine instance, prompting for machine ID if needed.
+
+    This function handles interactive setup and returns the initialized machine.
+
+    Args:
+        machine_id: Optional machine ID. If not provided, will prompt the user.
+
+    Returns:
+        An initialized AuditableMachine instance ready for use.
+    """
     try:
         machine = AuditableMachine(machine_id)
-        machine.spin_socket_server()
+        return machine
     except NoSavedMachineID:
         print("Machine ID must be provided for new machines.")
         i = input("Enter a unique machine ID (e.g., hostname or UUID): ").strip()
-        main(i)
+        return init_machine(i)
+
+
+def main(machine_id: str | None = None):
+    machine = init_machine(machine_id)
+    machine.spin_socket_server()
 
 
 if __name__ == '__main__':
